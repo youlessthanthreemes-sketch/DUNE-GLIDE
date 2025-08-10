@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Dune Glide</title>
+<style>
+  :root{ --bg0:#0b1020; --bg1:#16233f; --sand0:#e7d5a4; --sand1:#d9c08a; --sand2:#c8ab72; --sun:#ffd27a; --text:#eaf2ff; }
+  html, body { height:100%; margin:0; background:linear-gradient(180deg, var(--bg1), var(--bg0)); color:var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+  canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+  .ui { position:fixed; left:0; right:0; top:0; display:flex; justify-content:center; padding:10px env(safe-area-inset-right) 0 env(safe-area-inset-left); pointer-events:none; }
+  .badge { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:6px 10px; box-shadow: 0 6px 20px rgba(0,0,0,.3); pointer-events:auto;}
+  .controls { position:fixed; left:0; right:0; bottom: calc(env(safe-area-inset-bottom) + 14px); display:flex; gap:10px; justify-content:center;}
+  .btn { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); color:var(--text); padding:12px 16px; border-radius:14px; user-select:none; touch-action:manipulation;}
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Dune Glide"></canvas>
+<div class="ui"><div class="badge">Score: <span id="score">0</span></div></div>
+<div class="controls">
+  <button class="btn" id="left">◀︎</button>
+  <button class="btn" id="jump">Sprung/Gleiten</button>
+  <button class="btn" id="right">▶︎</button>
+</div>
+<script>
+const DPR = Math.max(1, Math.min(3, devicePixelRatio||1));
+const canvas = document.getElementById('game'); const ctx = canvas.getContext('2d');
+let W=0,H=0; function resize(){ const vw=innerWidth, vh=innerHeight; W=Math.floor(vw*DPR); H=Math.floor(vh*DPR); canvas.width=W; canvas.height=H; canvas.style.width=vw+'px'; canvas.style.height=vh+'px'; } resize(); addEventListener('resize', resize);
+let t=0, last=performance.now();
+function noise1(x){ return Math.sin(x*0.9)+Math.sin(x*0.47)*0.5+Math.sin(x*0.21)*0.25; }
+function duneY(x, off, amp){ return H*0.65 + noise1((x+off)*0.004)*amp; }
+// Player
+const player = { x: W*0.3, y: H*0.5, r: 14*DPR, vx: 0, vy: 0, speed: 0.16*DPR, grav: 0.00052*H, jump: 0.018*H, glideG: 0.35, onGround: false };
+let offset = 0, score=0, scoreEl = document.getElementById('score'), glide=false, left=false, right=false;
+// Buttons
+const btnL = document.getElementById('left'), btnR = document.getElementById('right'), btnJ = document.getElementById('jump');
+btnL.onpointerdown=()=>{left=true}; btnL.onpointerup=()=>{left=false};
+btnR.onpointerdown=()=>{right=true}; btnR.onpointerup=()=>{right=false};
+btnJ.onpointerdown=()=>{ if(player.onGround){ player.vy = -player.jump; } glide=true; };
+btnJ.onpointerup=()=>{ glide=false };
+canvas.addEventListener('pointerdown', e=>{ if(e.clientX < innerWidth*0.5) left=true; else right=true; });
+addEventListener('pointerup', ()=>{ left=false; right=false; });
+function update(dt){
+  if(left) player.vx -= player.speed*dt;
+  if(right) player.vx += player.speed*dt;
+  player.vx *= Math.pow(0.995, dt);
+  player.x += player.vx*dt;
+  offset += (0.06*H + Math.max(0,player.vx*0.06))*dt;
+  const ground = duneY(player.x, offset, 80*DPR);
+  const groundN = (duneY(player.x+4*DPR, offset, 80*DPR) - ground);
+  const g = player.grav * (glide && player.vy> -0.001*H ? player.glideG : 1);
+  player.vy += g*dt;
+  player.y += player.vy*dt;
+  const foot = player.y + player.r;
+  if(foot >= ground){
+    player.onGround = true;
+    player.y = ground - player.r;
+    if(player.vy>0) player.vy = 0;
+    player.x += Math.max(0, groundN) * 0.4*dt;
+  }else{ player.onGround = false; }
+  player.x = Math.max(player.r, Math.min(W-player.r, player.x));
+  score += dt*0.02*(1 + Math.max(0, groundN)*0.002);
+  scoreEl.textContent = Math.floor(score);
+}
+function circle(x,y,r){ ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.closePath(); }
+function draw(dt){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0, '#1d2f5a'); g.addColorStop(1, '#0b1020');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha=0.9; ctx.fillStyle='#ffd27a'; circle(W*0.8, H*0.22, 40*DPR); ctx.fill(); ctx.globalAlpha=1;
+  drawDunes(offset*0.5, 38*DPR, '#c8ab72');
+  drawDunes(offset*0.75, 55*DPR, '#d9c08a');
+  drawDunes(offset*1.0, 80*DPR, '#e7d5a4');
+  ctx.save(); ctx.translate(player.x, player.y); ctx.rotate((player.vx)*0.0006);
+  ctx.fillStyle = '#eaf2ff';
+  ctx.beginPath(); ctx.moveTo(-player.r*0.6, player.r*0.2); ctx.lineTo(0, -player.r*0.9); ctx.lineTo(player.r*0.9, player.r*0.6); ctx.quadraticCurveTo(0, player.r*0.9, -player.r*0.6, player.r*0.2); ctx.fill();
+  ctx.restore();
+}
+function drawDunes(off, amp, color){
+  ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, H);
+  for(let x=0; x<=W; x+=4*DPR){ const y = duneY(x, off, amp); ctx.lineTo(x, y); }
+  ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
+}
+function loop(){ const now = performance.now(); const dt = Math.min(50, now-last); last=now; update(dt); draw(dt); requestAnimationFrame(loop); } loop();
+if('serviceWorker' in navigator){ window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js')); }
+</script>
+</body>
+</html>
